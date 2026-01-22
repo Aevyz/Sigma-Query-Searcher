@@ -24,7 +24,8 @@ const list = document.getElementById("list");
 const detail = document.getElementById("detail");
 const statusLine = document.getElementById("statusLine");
 const ruleCount = document.getElementById("ruleCount");
-const datasetPath = document.getElementById("datasetPath");
+const buildTime = document.getElementById("buildTime");
+const lastCommit = document.getElementById("lastCommit");
 const clearBtn = document.getElementById("clearBtn");
 const loadMoreBtn = document.getElementById("loadMoreBtn");
 const flowchartModal = document.getElementById("flowchartModal");
@@ -487,6 +488,24 @@ function renderDetectionFlowchart(yaml, container) {
       .replace(/~/g, '#126;');
   }
 
+  // Helper function to format field info for display
+  function formatFieldInfo(field) {
+    const maxValues = 3;
+    const fieldLabel = escapeMermaid(field.name);
+
+    if (field.values.length === 1) {
+      const value = escapeMermaid(field.values[0]);
+      return `${fieldLabel}: ${value}`;
+    }
+
+    const displayValues = field.values.slice(0, maxValues).map(v => escapeMermaid(v));
+    if (field.values.length > maxValues) {
+      const remaining = field.values.length - maxValues;
+      return `${fieldLabel}:<br/> - ${displayValues.join('<br/> - ')}<br/> - (and ${remaining} more)`;
+    }
+    return `${fieldLabel}:<br/> - ${displayValues.join('<br/> - ')}`;
+  }
+
   let mermaidCode = "flowchart TD\n";
   mermaidCode += "    Start([Detection Start])\n";
 
@@ -494,10 +513,14 @@ function renderDetectionFlowchart(yaml, container) {
     // Connect start to all selections
     selections.forEach((sel, idx) => {
       const nodeId = `Sel${idx}`;
-      // Simplified label - just selection name and field count
-      const fieldCount = sel.fields.length;
-      const fieldSummary = fieldCount === 1 ? '1 field' : `${fieldCount} fields`;
-      let label = `<b>${escapeMermaid(sel.name)}</b><br/>${fieldSummary}`;
+
+      // Build label with field details
+      let label = `<b>${escapeMermaid(sel.name)}</b>`;
+
+      // Show detailed field information
+      sel.fields.forEach((field) => {
+        label += `<br/>${formatFieldInfo(field)}`;
+      });
 
       mermaidCode += `    Start --> ${nodeId}["${label}"]\n`;
     });
@@ -508,8 +531,10 @@ function renderDetectionFlowchart(yaml, container) {
       mermaidCode += `    ${nodeId} --> Condition\n`;
     });
 
-    const conditionLabel =
-      condition.length > 50 ? `${escapeMermaid(condition.slice(0, 50))}...` : escapeMermaid(condition);
+    // Format condition with line breaks for readability
+    let conditionLabel = escapeMermaid(condition);
+    // If condition is very long, just show it (Mermaid will handle wrapping in diamond)
+    // Don't truncate - let user see full condition
     mermaidCode += `    Condition{"${conditionLabel}"} -->|Match| Alert[🚨 Alert]\n`;
     mermaidCode += "    Condition -->|No Match| NoMatch[No Match]\n";
   } else {
@@ -697,6 +722,80 @@ function updateFlowchartZoom() {
   svg.style.transform = `scale(${state.flowchartZoom})`;
 }
 
+function formatDateTime(isoString) {
+  if (!isoString) return "Unknown";
+  try {
+    const date = new Date(isoString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) {
+      return diffMins === 1 ? "1 min ago" : `${diffMins} mins ago`;
+    } else if (diffHours < 24) {
+      return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+    } else if (diffDays < 7) {
+      return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
+    } else {
+      return date.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    }
+  } catch (e) {
+    return "Unknown";
+  }
+}
+
+async function checkForSigmaUpdates(localCommit, localCommitDate) {
+  try {
+    // Fetch latest commit from Sigma repository via GitHub API
+    const response = await fetch('https://api.github.com/repos/SigmaHQ/sigma/commits/master', {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
+
+    if (!response.ok) {
+      return; // Silently fail if API is unavailable
+    }
+
+    const data = await response.json();
+    const remoteCommit = data.sha;
+    const remoteCommitDate = data.commit.committer.date;
+
+    // Compare commits
+    if (localCommit === remoteCommit) {
+      // Up to date
+      const currentText = lastCommit.textContent;
+      lastCommit.textContent = `${currentText} ✓`;
+      lastCommit.title = `${lastCommit.title}\n✓ Up to date with Sigma repository`;
+    } else {
+      // Check if local is behind remote by comparing dates
+      const localDate = new Date(localCommitDate);
+      const remoteDate = new Date(remoteCommitDate);
+
+      if (remoteDate > localDate) {
+        // Behind remote
+        const currentText = lastCommit.textContent;
+        lastCommit.textContent = `${currentText} ⚠`;
+        lastCommit.title = `${lastCommit.title}\n⚠ Newer commits available in Sigma repository\nLatest: ${remoteCommit.substring(0, 8)} (${formatDateTime(remoteCommitDate)})`;
+      } else {
+        // Ahead or different branch - show neutral indicator
+        const currentText = lastCommit.textContent;
+        lastCommit.textContent = `${currentText} ✓`;
+        lastCommit.title = `${lastCommit.title}\n✓ Using specific commit`;
+      }
+    }
+  } catch (error) {
+    // Silently fail - network issues or API rate limits
+    console.debug('Could not check for Sigma updates:', error);
+  }
+}
+
 async function loadIndex() {
   try {
     const response = await fetch("data/rules.json");
@@ -705,14 +804,34 @@ async function loadIndex() {
     }
     const payload = await response.json();
     state.rules = sortRules(payload.rules || []);
-    datasetPath.textContent = payload.generated_from || "Local";
     ruleCount.textContent = `${payload.count || state.rules.length}`;
+
+    // Display build time
+    buildTime.textContent = formatDateTime(payload.build_time);
+    buildTime.title = payload.build_time || "Unknown";
+
+    // Display last commit info
+    if (payload.git_last_commit) {
+      const commitHash = payload.git_last_commit.substring(0, 8);
+      const commitDate = formatDateTime(payload.git_last_commit_date);
+
+      lastCommit.textContent = `${commitHash} (${commitDate})`;
+      lastCommit.title = `${payload.git_last_commit}\n${payload.git_last_commit_date || ''}`;
+
+      // Check for updates from GitHub API (client-side)
+      checkForSigmaUpdates(payload.git_last_commit, payload.git_last_commit_date);
+    } else {
+      lastCommit.textContent = "N/A";
+      lastCommit.title = "Git information not available";
+    }
+
     state.filtered = [...state.rules];
     runSearch();
   } catch (error) {
     statusLine.textContent =
       "Failed to load data/rules.json. Run build_index.py.";
-    datasetPath.textContent = "Missing index";
+    buildTime.textContent = "Missing index";
+    lastCommit.textContent = "Missing index";
   }
 }
 

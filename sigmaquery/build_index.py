@@ -3,6 +3,8 @@ import argparse
 import json
 from pathlib import Path
 import re
+import subprocess
+from datetime import datetime
 
 
 TITLE_RE = re.compile(r"^title:\s*(.+)$", re.IGNORECASE)
@@ -102,6 +104,36 @@ def extract_logsource(text):
     }
 
 
+def get_git_info(repo_path):
+    """Get git information from the repository."""
+    info = {}
+    try:
+        # Get last commit hash
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        info["last_commit"] = result.stdout.strip()
+
+        # Get last commit date
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%ci"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        info["last_commit_date"] = result.stdout.strip()
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Git not available or not a git repo
+        pass
+    return info
+
+
 def main():
     base_dir = Path(__file__).resolve().parent
     default_source = (base_dir / ".." / "sigma").resolve()
@@ -132,9 +164,16 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     rules = collect_rules(source_dir, set(args.exclude))
+
+    # Get git information from source directory
+    git_info = get_git_info(source_dir)
+
     payload = {
         "generated_from": str(source_dir),
         "count": len(rules),
+        "build_time": datetime.utcnow().isoformat() + "Z",
+        "git_last_commit": git_info.get("last_commit"),
+        "git_last_commit_date": git_info.get("last_commit_date"),
         "rules": rules,
     }
 
@@ -142,6 +181,8 @@ def main():
         json.dump(payload, handle, ensure_ascii=True)
 
     print(f"Wrote {len(rules)} rules to {output_path}")
+    if git_info.get("last_commit"):
+        print(f"Last git commit: {git_info['last_commit'][:8]} on {git_info.get('last_commit_date', 'unknown date')}")
 
 
 if __name__ == "__main__":

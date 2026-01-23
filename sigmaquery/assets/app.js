@@ -4,7 +4,7 @@ const state = {
   selectedIndex: null,
   limit: 120,
   mode: "yaml",
-  detailView: "yaml",
+  detailView: "summary",
   flowchartSvg: "",
   flowchartZoom: 1,
   highlightLineNumber: null,
@@ -174,32 +174,32 @@ function renderResults() {
     if (rule.status) {
       const statusTag = document.createElement("span");
       statusTag.className = "tag";
-      statusTag.textContent = rule.status;
+      statusTag.textContent = `status: ${rule.status}`;
       tagRow.appendChild(statusTag);
     }
     if (rule.level) {
       const levelTag = document.createElement("span");
       levelTag.className = "tag";
-      levelTag.textContent = rule.level;
+      levelTag.textContent = `level: ${rule.level}`;
       tagRow.appendChild(levelTag);
     }
     const logsource = rule.logsource || {};
     if (logsource.product) {
       const productTag = document.createElement("span");
       productTag.className = "tag";
-      productTag.textContent = `product:${logsource.product}`;
+      productTag.textContent = `product: ${logsource.product}`;
       tagRow.appendChild(productTag);
     }
     if (logsource.category) {
       const categoryTag = document.createElement("span");
       categoryTag.className = "tag";
-      categoryTag.textContent = `category:${logsource.category}`;
+      categoryTag.textContent = `category: ${logsource.category}`;
       tagRow.appendChild(categoryTag);
     }
     if (logsource.service) {
       const serviceTag = document.createElement("span");
       serviceTag.className = "tag";
-      serviceTag.textContent = `service:${logsource.service}`;
+      serviceTag.textContent = `service: ${logsource.service}`;
       tagRow.appendChild(serviceTag);
     }
 
@@ -231,32 +231,47 @@ function renderDetail(rule) {
   const toolbar = document.createElement("div");
   toolbar.className = "detail-toolbar";
 
-  const yamlBtn = document.createElement("button");
-  yamlBtn.type = "button";
-  yamlBtn.textContent = "YAML View";
-  yamlBtn.className = state.detailView === "yaml" ? "active" : "";
-  yamlBtn.addEventListener("click", () => {
-    state.detailView = "yaml";
-    state.highlightLineNumber = null; // Clear highlight when switching views
+  // Summary button (first)
+  const summaryBtn = document.createElement("button");
+  summaryBtn.type = "button";
+  summaryBtn.textContent = "Summary";
+  summaryBtn.className = state.detailView === "summary" ? "active" : "";
+  summaryBtn.addEventListener("click", () => {
+    state.detailView = "summary";
     renderDetail(rule);
   });
 
+  // Flowchart button (second)
   const flowBtn = document.createElement("button");
   flowBtn.type = "button";
-  flowBtn.textContent = "Flowchart View";
+  flowBtn.textContent = "Flowchart";
   flowBtn.className = state.detailView === "flowchart" ? "active" : "";
   flowBtn.addEventListener("click", () => {
     state.detailView = "flowchart";
     renderDetail(rule);
   });
 
-  toolbar.appendChild(yamlBtn);
+  // YAML button (third)
+  const yamlBtn = document.createElement("button");
+  yamlBtn.type = "button";
+  yamlBtn.textContent = "YAML";
+  yamlBtn.className = state.detailView === "yaml" ? "active" : "";
+  yamlBtn.addEventListener("click", () => {
+    state.detailView = "yaml";
+    state.highlightLineNumber = null;
+    renderDetail(rule);
+  });
+
+  toolbar.appendChild(summaryBtn);
   toolbar.appendChild(flowBtn);
+  toolbar.appendChild(yamlBtn);
 
   const body = document.createElement("div");
   body.className = "detail-body";
 
-  if (state.detailView === "flowchart") {
+  if (state.detailView === "summary") {
+    renderSummaryView(rule, body);
+  } else if (state.detailView === "flowchart") {
     const flowchart = document.createElement("div");
     flowchart.className = "flowchart";
     flowchart.innerHTML = '<p class="flowchart-loading">Rendering flowchart…</p>';
@@ -289,6 +304,187 @@ function renderDetail(rule) {
   detail.appendChild(meta);
   detail.appendChild(toolbar);
   detail.appendChild(body);
+}
+
+function parseYamlFields(yaml) {
+  const fields = {
+    description: '',
+    author: '',
+    references: [],
+    tags: [],
+    falsepositives: [],
+  };
+
+  if (!yaml) return fields;
+
+  const lines = yaml.split('\n');
+
+  // Parse single-line fields
+  for (const line of lines) {
+    const descMatch = line.match(/^description:\s*['"]?(.+?)['"]?\s*$/i);
+    if (descMatch) {
+      fields.description = descMatch[1].trim();
+    }
+    const authorMatch = line.match(/^author:\s*['"]?(.+?)['"]?\s*$/i);
+    if (authorMatch) {
+      fields.author = authorMatch[1].trim();
+    }
+  }
+
+  // Parse multi-line fields (references, tags, falsepositives)
+  let currentField = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.match(/^references:\s*$/i)) {
+      currentField = 'references';
+      continue;
+    }
+    if (line.match(/^tags:\s*$/i)) {
+      currentField = 'tags';
+      continue;
+    }
+    if (line.match(/^falsepositives:\s*$/i)) {
+      currentField = 'falsepositives';
+      continue;
+    }
+
+    // Check if we hit a new top-level field
+    if (line.match(/^[a-z]+:/i) && !line.startsWith(' ')) {
+      currentField = null;
+      continue;
+    }
+
+    // Parse list items
+    if (currentField) {
+      const listMatch = line.match(/^\s+-\s+['"]?(.+?)['"]?\s*$/);
+      if (listMatch) {
+        fields[currentField].push(listMatch[1].trim());
+      }
+    }
+  }
+
+  return fields;
+}
+
+function renderSummaryView(rule, body) {
+  const summary = document.createElement("div");
+  summary.className = "summary-view";
+
+  // Parse additional fields from YAML
+  const parsed = parseYamlFields(rule.yaml);
+
+  // Description
+  if (parsed.description) {
+    const descSection = document.createElement("div");
+    descSection.className = "summary-section";
+    descSection.innerHTML = `<h4>Description</h4><p>${escapeHtml(parsed.description)}</p>`;
+    summary.appendChild(descSection);
+  }
+
+  // Author
+  if (parsed.author) {
+    const authorSection = document.createElement("div");
+    authorSection.className = "summary-section";
+    authorSection.innerHTML = `<h4>Author</h4><p>${escapeHtml(parsed.author)}</p>`;
+    summary.appendChild(authorSection);
+  }
+
+  // References
+  if (parsed.references.length > 0) {
+    const refSection = document.createElement("div");
+    refSection.className = "summary-section";
+    const refTitle = document.createElement("h4");
+    refTitle.textContent = "References";
+    refSection.appendChild(refTitle);
+    const refList = document.createElement("ul");
+    refList.className = "summary-list";
+    parsed.references.forEach((ref) => {
+      const li = document.createElement("li");
+      const link = document.createElement("a");
+      link.href = ref;
+      link.textContent = ref;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      li.appendChild(link);
+      refList.appendChild(li);
+    });
+    refSection.appendChild(refList);
+    summary.appendChild(refSection);
+  }
+
+  // MITRE Tags
+  if (parsed.tags.length > 0) {
+    const tagsSection = document.createElement("div");
+    tagsSection.className = "summary-section";
+    const tagsTitle = document.createElement("h4");
+    tagsTitle.textContent = "Tags";
+    tagsSection.appendChild(tagsTitle);
+    const tagsContainer = document.createElement("div");
+    tagsContainer.className = "summary-tags";
+    parsed.tags.forEach((tag) => {
+      const tagEl = document.createElement("span");
+      tagEl.className = "tag";
+      tagEl.textContent = tag;
+      tagsContainer.appendChild(tagEl);
+    });
+    tagsSection.appendChild(tagsContainer);
+    summary.appendChild(tagsSection);
+  }
+
+  // Logsource
+  const logsource = rule.logsource || {};
+  if (logsource.product || logsource.category || logsource.service) {
+    const logSection = document.createElement("div");
+    logSection.className = "summary-section";
+    const logTitle = document.createElement("h4");
+    logTitle.textContent = "Logsource";
+    logSection.appendChild(logTitle);
+    const logDetails = document.createElement("div");
+    logDetails.className = "summary-logsource";
+    if (logsource.product) {
+      logDetails.innerHTML += `<p><strong>Product:</strong> ${escapeHtml(logsource.product)}</p>`;
+    }
+    if (logsource.category) {
+      logDetails.innerHTML += `<p><strong>Category:</strong> ${escapeHtml(logsource.category)}</p>`;
+    }
+    if (logsource.service) {
+      logDetails.innerHTML += `<p><strong>Service:</strong> ${escapeHtml(logsource.service)}</p>`;
+    }
+    logSection.appendChild(logDetails);
+    summary.appendChild(logSection);
+  }
+
+  // False Positives
+  if (parsed.falsepositives.length > 0) {
+    const fpSection = document.createElement("div");
+    fpSection.className = "summary-section";
+    const fpTitle = document.createElement("h4");
+    fpTitle.textContent = "False Positives";
+    fpSection.appendChild(fpTitle);
+    const fpList = document.createElement("ul");
+    fpList.className = "summary-list";
+    parsed.falsepositives.forEach((fp) => {
+      const li = document.createElement("li");
+      li.textContent = fp;
+      fpList.appendChild(li);
+    });
+    fpSection.appendChild(fpList);
+    summary.appendChild(fpSection);
+  }
+
+  // View Detection button
+  const detectionBtn = document.createElement("button");
+  detectionBtn.type = "button";
+  detectionBtn.className = "detection-btn";
+  detectionBtn.textContent = "View Detection Logic";
+  detectionBtn.addEventListener("click", () => {
+    state.detailView = "flowchart";
+    renderDetail(rule);
+  });
+  summary.appendChild(detectionBtn);
+
+  body.appendChild(summary);
 }
 
 function escapeHtml(value) {
@@ -532,9 +728,11 @@ function renderDetectionFlowchart(yaml, container) {
     });
 
     // Format condition with line breaks for readability
-    let conditionLabel = escapeMermaid(condition);
-    // If condition is very long, just show it (Mermaid will handle wrapping in diamond)
-    // Don't truncate - let user see full condition
+    let conditionLabel = escapeMermaid(condition)
+      // Add line breaks after logical operators for better wrapping
+      .replace(/\s+(and)\s+/gi, '<br/>$1 ')
+      .replace(/\s+(or)\s+/gi, '<br/>$1 ')
+      .replace(/\s+(of)\s+/gi, ' $1<br/>');
     mermaidCode += `    Condition{"${conditionLabel}"} -->|Match| Alert[🚨 Alert]\n`;
     mermaidCode += "    Condition -->|No Match| NoMatch[No Match]\n";
   } else {

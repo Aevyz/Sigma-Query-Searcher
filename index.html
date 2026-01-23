@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+    <title>Sigma Query Local</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <div class="background">
+      <div class="glow glow-a"></div>
+      <div class="glow glow-b"></div>
+    </div>
+    <main class="app">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Local Sigma search</p>
+          <h1>Sigma Query</h1>
+          <p class="lede">
+            Search your local Sigma repo across titles, metadata,
+            and full YAML content.
+          </p>
+        </div>
+        <div class="meta">
+          <div class="meta-card">
+            <p class="meta-label">Last Build</p>
+            <p id="buildTime" class="meta-value">Loading…</p>
+          </div>
+          <div class="meta-card">
+            <p class="meta-label">Last Commit</p>
+            <p id="lastCommit" class="meta-value">Loading…</p>
+          </div>
+          <div class="meta-card">
+            <p class="meta-label">Rules</p>
+            <p id="ruleCount" class="meta-value">0</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="controls">
+        <label class="search">
+          <span>Query</span>
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Search full YAML (e.g. console, rundll32, c2)"
+            autocomplete="off"
+          />
+        </label>
+        <div class="toggle-group" role="group" aria-label="Search mode">
+          <button class="toggle-btn active" type="button" data-mode="yaml">
+            Search full YAML
+          </button>
+          <button class="toggle-btn" type="button" data-mode="title">
+            Search titles only
+          </button>
+        </div>
+      </section>
+
+      <section class="results">
+        <div class="results-head">
+          <p id="statusLine" class="status">Loading rules…</p>
+          <div class="results-actions">
+            <button id="clearBtn" type="button">Clear</button>
+            <button id="loadMoreBtn" type="button">Load more</button>
+          </div>
+        </div>
+        <div class="results-body">
+          <div id="list" class="list"></div>
+          <div id="detail" class="detail">
+            <p class="detail-empty">Select a rule to preview the YAML.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+    <div id="flowchartModal" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Flowchart</h3>
+          <div class="modal-actions">
+            <button id="flowchartZoomOut" type="button">-</button>
+            <button id="flowchartZoomReset" type="button">Reset</button>
+            <button id="flowchartZoomIn" type="button">+</button>
+            <button id="flowchartClose" type="button">Close</button>
+          </div>
+        </div>
+        <div id="flowchartModalBody" class="modal-body"></div>
+      </div>
+    </div>
+    <script src="assets/vendor/mermaid.min.js"></script>
+    <script src="assets/mermaid.js"></script>
+    <script src="assets/app.js"></script>
+  </body>
+</html>
